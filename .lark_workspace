@@ -1,0 +1,9 @@
+{
+  "workspace": "/data/user/0/com.ljq.ga/files/ga/lark_bot",
+  "registered_at": "2026-07-11 14:23:14",
+  "type": "feishu_bot",
+  "startup_script": "start_fsbot.py",
+  "config": "mykey.json",
+  "log": "bot.log",
+  "description": "飞书机器人工作目录"
+}

@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 运行日志
+bot.log
+*.log
+
+# 环境/配置（含密钥——绝不可提交！）
+.env
+mykey.json
+channels/lark.json        # 用户填入真实密钥后，不要提交此文件
+channels/*.json           # 所有渠道凭证文件
+
+# 操作系统
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# 部署包依赖（大文件，已包含在仓库中，勿误删）
+# deploy/site_packages.tar.gz
+
+# 临时文件
+tmp/
+temp/
+*.tmp
