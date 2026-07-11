@@ -75,7 +75,7 @@ ga-feishu-bot/
 ### 前置条件
 
 - 一台 **安卓手机**
-- 已安装 **GA App**（[下载地址](https://github.com/你的用户名/ga-feishu-bot/releases)）
+- 已安装 **GA App**（[下载地址](https://app.gaagent.ai)）
 - 一个 **飞书开放平台** 企业自建应用（[创建应用](https://open.feishu.cn)）
 
 ### 方式一：一键部署（推荐）
@@ -226,7 +226,7 @@ result = stop()
 
 ## 🙏 致谢
 
-- [GA App](https://github.com/) — 提供 Chaquopy Python 运行时
+- [GA App](https://app.gaagent.ai/) — 提供 Chaquopy Python 运行时
 - [lark-oapi](https://pypi.org/project/lark-oapi/) — 飞书开放平台 SDK
 - [GenericAgent](https://github.com/lsdefine/GenericAgent) — 提供 fsapp.py WebSocket + 消息处理框架
 - 所有贡献者和用户
