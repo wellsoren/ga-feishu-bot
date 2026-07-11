@@ -228,4 +228,5 @@ result = stop()
 
 - [GA App](https://github.com/) — 提供 Chaquopy Python 运行时
 - [lark-oapi](https://pypi.org/project/lark-oapi/) — 飞书开放平台 SDK
+- [GenericAgent](https://github.com/lsdefine/GenericAgent) — 提供 fsapp.py WebSocket + 消息处理框架
 - 所有贡献者和用户
