@@ -122,6 +122,10 @@ python setup/patch_decryptor.py --sp-dir site-packages
 
 ### 启动机器人
 
+> 🎉 **v1.0.1 起**：部署完成后，**GA 冷启动时飞书机器人将自动上线**，无需手动操作。
+
+手动控制（调试/维护用）：
+
 ```python
 # 方式1：使用控制模块
 from fsbot_ctl import start, stop, status
