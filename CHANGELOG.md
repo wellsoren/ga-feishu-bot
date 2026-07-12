@@ -27,7 +27,7 @@
 
 ### 📖 文档
 
-- 完整的 README（中英文双语）
+- 完整的 README（中文）
 - 贡献指南 CONTRIBUTING.md
 - 安全策略 SECURITY.md
 - 行为准则 CODE_OF_CONDUCT.md
