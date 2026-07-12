@@ -75,7 +75,7 @@ ga-feishu-bot/
 ### 前置条件
 
 - 一台 **安卓手机**
-- 已安装 **GA App**（[下载地址](https://app.gaagent.ai)）
+- 已安装 **GA App**（[下载地址](https://github.com/你的用户名/ga-feishu-bot/releases)）
 - 一个 **飞书开放平台** 企业自建应用（[创建应用](https://open.feishu.cn)）
 
 ### 方式一：一键部署（推荐）
@@ -120,10 +120,17 @@ python setup/patch_decryptor.py --sp-dir site-packages
 - `fs_app_id` / `fs_app_secret` — 从飞书开放平台获取
 - `fs_allowed_users` — 允许使用机器人的用户列表（`[]` 表示所有人）
 
-### 启动/停止机器人
+### 启动机器人
 
-**直接对GA说：** `启动飞书机器人`/ `停止飞书机器人`
+```python
+# 方式1：使用控制模块
+from fsbot_ctl import start, stop, status
+start()
+status()
 
+# 方式2：直接运行启动器
+python start_fsbot.py
+```
 
 > 📖 **详细操作指南**（启停/状态查询/故障排查）见 [`docs/user_guide.md`](docs/user_guide.md)
 
@@ -219,7 +226,7 @@ result = stop()
 
 ## 🙏 致谢
 
-- [GA App](https://app.gaagent.ai/) — 提供 Chaquopy Python 运行时
+- [GA App](https://github.com/) — 提供 Chaquopy Python 运行时
 - [lark-oapi](https://pypi.org/project/lark-oapi/) — 飞书开放平台 SDK
 - [GenericAgent](https://github.com/lsdefine/GenericAgent) — 提供 fsapp.py WebSocket + 消息处理框架
 - 所有贡献者和用户

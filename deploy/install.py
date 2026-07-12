@@ -12,7 +12,7 @@
 
 工作流程:
     1. 检测 GA 环境 → 2. 部署源码 → 3. 安装依赖 → 4. 打解密补丁
-    → 5. 生成配置模板 → 6. 注册工作目录 → 7. 验证安装
+    → 5. 生成配置模板 → 6. 注册工作目录 → 7. 注入自启动补丁 → 8. 验证安装
 """
 
 import argparse
@@ -28,7 +28,7 @@ import urllib.request
 
 
 # ── 常量 ──────────────────────────────────────────────
-VERSION = "2.0.0"
+VERSION = "1.0.1"
 PACKAGE_NAME = "ga_feishu_deploy"
 
 # 需要部署的文件映射（src_in_package → dest_relative_to_lark_bot）
@@ -371,6 +371,37 @@ def register_workspace(lark_bot_dir):
     return ws_file
 
 
+# ── android_entry 自启动补丁 ──────────────────────────
+
+def apply_android_entry_patch(ga_root):
+    """给 android_entry.py 注入飞书自启动代码（幂等）"""
+    section("应用自启动补丁")
+
+    # 动态导入同包下的补丁脚本
+    import importlib
+    try:
+        patcher = importlib.import_module("setup.patch_android_entry")
+    except ImportError:
+        # 如果 setup 不在 sys.path 中，手动加载
+        setup_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "setup")
+        if setup_dir not in sys.path:
+            sys.path.insert(0, setup_dir)
+        try:
+            import patch_android_entry as patcher
+        except ImportError:
+            warn("未找到 patch_android_entry.py，跳过自启动补丁")
+            return False, "补丁脚本缺失"
+
+    ok_status, err = patcher.patch(ga_root)
+    if ok_status:
+        ok("android_entry.py 已注入自启动代码（_ensure_fsbot）")
+        return True, None
+    elif err:
+        warn(f"自启动补丁: {err}")
+        return False, err
+    return True, None
+
+
 # ── 验证 ──────────────────────────────────────────────
 
 def verify_installation(lark_bot_dir):
@@ -523,7 +554,10 @@ def main():
     # ── 第 7 步：注册工作目录 ──
     register_workspace(lark_bot_dir)
 
-    # ── 第 8 步：验证安装 ──
+    # ── 第 8 步：注入自启动补丁 ──
+    apply_android_entry_patch(ga_root)
+
+    # ── 第 9 步：验证安装 ──
     all_ok, _ = verify_installation(lark_bot_dir)
 
     # ── 完成 ──
@@ -540,13 +574,12 @@ def main():
     print(f"     {os.path.join(lark_bot_dir, 'mykey.json')}")
     print(f"     填入你的飞书 App ID 和 App Secret")
     print()
-    print(f"  2. 启动机器人:")
-    print(f"     cd {lark_bot_dir}")
-    print(f"     python start_fsbot.py")
+    print(f"  2. 重启 GA 应用:")
+    print(f"     GA 冷启动时飞书机器人将自动上线（已注入自启动代码）")
     print()
-    print(f"  3. 或在 GA 中通过控制模块管理:")
+    print(f"  3. 手动控制（可选）:")
     print(f"     from ga_bot_ctl import start, stop, status")
-    print(f"     start()")
+    print(f"     status()  # 查看运行状态")
     print()
     print(f"  {color('飞书开放平台:', 36)} https://open.feishu.cn")
     print(f"  {color('项目文档:', 36)} 阅读 README.md 获取完整说明")
