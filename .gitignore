@@ -37,6 +37,3 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
-
-# GitHub Token（存储在本地，绝不提交）
-.github_token

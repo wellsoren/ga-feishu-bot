@@ -17,8 +17,9 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 OWNER, REPO = "wellsoren", "ga-feishu-bot"
 API = f"https://api.github.com/repos/{OWNER}/{REPO}"
 
-# ── 读取 Token ──
-token_file = os.path.join(PROJECT_ROOT, ".github_token")
+# ── 读取 Token（存于 GA memory 目录，全局共享，不随项目提交）──
+ga_root = os.path.abspath(os.path.join(PROJECT_ROOT, "..", ".."))
+token_file = os.path.join(ga_root, "memory", ".github_token")
 if not os.path.exists(token_file):
     print("[ERROR] 未找到 .github_token，请创建该文件并写入 GitHub Token")
     sys.exit(1)
