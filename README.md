@@ -82,8 +82,8 @@ ga-feishu-bot/
 
 ```bash
 # 1. 解压部署包
-tar -xzf ga-feishu-bot-1.0.0.tar.gz
-cd ga-feishu-bot
+tar -xzf ga_feishu_bot_v1.0.1.tar.gz
+cd ga_feishu_deploy
 
 # 2. 运行安装（会自动检测 GA 环境，在线下载依赖）
 python deploy/install.py
