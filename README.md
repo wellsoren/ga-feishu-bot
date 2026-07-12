@@ -120,17 +120,10 @@ python setup/patch_decryptor.py --sp-dir site-packages
 - `fs_app_id` / `fs_app_secret` — 从飞书开放平台获取
 - `fs_allowed_users` — 允许使用机器人的用户列表（`[]` 表示所有人）
 
-### 启动机器人
+### 启动/停止机器人
 
-```python
-# 方式1：使用控制模块
-from fsbot_ctl import start, stop, status
-start()
-status()
+**直接对GA说：** `启动飞书机器人`/ `停止飞书机器人`
 
-# 方式2：直接运行启动器
-python start_fsbot.py
-```
 
 > 📖 **详细操作指南**（启停/状态查询/故障排查）见 [`docs/user_guide.md`](docs/user_guide.md)
 
