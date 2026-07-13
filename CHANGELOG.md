@@ -4,6 +4,31 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [2.0.0] - 2026-07-13
+
+### ✨ 新增
+
+- 🚀 **飞书业务域命令模块 `feishu_api/`** — 全新 9 文件包，支持 `/日历` `/日程` `/群聊` `/消息` `/文档` `/文件` `/权限` `/帮助` 等中文命令
+  - `__init__.py`：命令注册(register_all_commands) + 分发(dispatch_command) + HELP_TEXT
+  - `_base.py`：`_call()` — lark_native REST 封装
+  - `command_router.py`：命令解析与路由（中英别名、路径参数去尖括号）
+  - `formatters.py`：卡片化输出格式渲染（分片）
+  - `calendar.py`：日历/日程
+  - `docx.py`：云文档（read / create）
+  - `drive.py`：云盘
+  - `im.py`：IM 消息
+  - `permissions.py`：权限总览
+- 💳 **卡片化回复** — `frontends/fsapp.py` 新增 `send_card()`，业务域命令以 interactive 卡片(markdown) 发送，长文本自动分片（`card_split_limit=12000`）
+- 📄 **`/文档 create` 命令** — 支持创建飞书云文档并返回文档链接
+
+### 🐛 修复
+
+- 🔑 **token 参数修复** — `/文档 read` 等命令的 `--token` 参数尖括号包裹导致 `invalid param`，`command_router` 已自动去尖括号
+
+### 📖 文档
+
+- 📚 README 补充 `feishu_api/` 目录结构说明
+
 ## [1.0.0] - 2026-07-11
 
 ### ✨ 新增

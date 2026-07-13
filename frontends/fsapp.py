@@ -723,11 +723,46 @@ def _make_task_hook(card, task_id, on_final):
 
 class FeishuApp(AgentChatMixin):
     label, source, split_limit = "Feishu", "feishu", 4000
+    card_split_limit = 12000  # 单张卡片 markdown 元素字符上限，超出则分片发送
+
+    async def handle_command(self, chat_key, user_input, *, receive_id=None, receive_id_type="open_id", **_):
+        """命令分发: 内置命令(/help /stop /status /clear)走原逻辑;
+        飞书业务域命令(/日历 /日程 /群聊 /消息 /文档 /文件 /权限 /帮助)走 feishu_api(卡片)。"""
+        rid = receive_id or chat_key
+        stripped = (user_input or "").strip()
+        cmd_head = stripped.split()[0].lower() if stripped else ""
+        # 内置命令优先 → 父类
+        if cmd_head in getattr(self, "_command_handlers", {}):
+            return await super().handle_command(chat_key, user_input,
+                                                receive_id=rid, receive_id_type=receive_id_type)
+        # 飞书业务域命令
+        if getattr(self, "_feishu_router", None) is not None:
+            try:
+                from feishu_api import dispatch_command
+                handled, reply = dispatch_command(self, user_input)
+                if handled and reply:
+                    await self.send_card(chat_key, reply,
+                                         receive_id=rid, receive_id_type=receive_id_type)
+                    return
+            except Exception as e:
+                print(f"[feishu_api] dispatch 异常: {e}")
+                await self.send_card(chat_key, f"❌ 命令处理异常: {e}",
+                                     receive_id=rid, receive_id_type=receive_id_type)
+                return
+        # 兜底: 未知命令 → 父类
+        return await super().handle_command(chat_key, user_input,
+                                            receive_id=rid, receive_id_type=receive_id_type)
 
     async def send_text(self, chat_id, content, *, receive_id=None, receive_id_type="open_id", **_):
         rid = receive_id or chat_id
         for part in split_text(content, self.split_limit):
             await asyncio.to_thread(send_message, rid, part, "text", False, receive_id_type)
+
+    async def send_card(self, chat_id, content, *, receive_id=None, receive_id_type="open_id", **_):
+        """飞书业务域回复: 以 interactive 卡片(markdown) 发送，长文本自动分片。"""
+        rid = receive_id or chat_id
+        for part in split_text(content, self.card_split_limit):
+            await asyncio.to_thread(send_message, rid, part, use_card=True, receive_id_type=receive_id_type)
 
     async def send_done(self, chat_id, raw_text, *, receive_id=None, receive_id_type="open_id", **_):
         rid = receive_id or chat_id
@@ -798,6 +833,17 @@ def get_app():
     global app
     if app is None:
         app = FeishuApp(get_agent(), user_tasks)
+    # 确保业务域命令已注册（即使 app 已存在但之前注册失败）
+    _feishu_router = getattr(app, '_feishu_router', None)
+    if _feishu_router is None:
+        try:
+            from feishu_api import register_all_commands
+            register_all_commands(app)
+            print(f"[feishu_api] 业务域命令已注册: {getattr(app, '_feishu_domains', [])}", flush=True)
+        except Exception as e:
+            print(f"[feishu_api] 命令注册失败(不影响主流程): {e}", flush=True)
+            import traceback
+            traceback.print_exc()
     return app
 
 

@@ -56,6 +56,16 @@ ga-feishu-bot/
 ├── start_fsbot.py           # 启动器
 ├── fsbot_ctl.py             # 控制模块（start / stop / status）
 ├── lark_native.py           # 飞书全接口 REST 客户端
+├── feishu_api/              # ★ v1.1 飞书业务域命令模块（/日历 /文档 /云盘 …）
+│   ├── __init__.py          #   命令注册(register_all_commands) + 分发(dispatch_command) + HELP_TEXT
+│   ├── _base.py             #   _call() — lark_native REST 封装
+│   ├── command_router.py    #   命令解析与路由（中英别名、路径参数去尖括号）
+│   ├── formatters.py        #   卡片化输出格式渲染（分片）
+│   ├── calendar.py           #   日历/日程
+│   ├── docx.py               #   云文档（read / create）
+│   ├── drive.py              #   云盘
+│   ├── im.py                 #   IM 消息
+│   └── permissions.py        #   权限总览
 ├── .lark_workspace          # 工作目录标记
 ├── README.md                # ← 就是本文件
 ├── LICENSE                  # MIT 许可证
@@ -82,7 +92,7 @@ ga-feishu-bot/
 
 ```bash
 # 1. 解压部署包
-tar -xzf ga_feishu_bot_v1.0.1.tar.gz
+tar -xzf ga_feishu_bot_v2.0.0.tar.gz
 cd ga_feishu_deploy
 
 # 2. 运行安装（会自动检测 GA 环境，在线下载依赖）
@@ -122,7 +132,7 @@ python setup/patch_decryptor.py --sp-dir site-packages
 
 ### 启动机器人
 
-> 🎉 **v1.0.1 起**：部署完成后，**GA 冷启动时飞书机器人将自动上线**，无需手动操作。
+> 🎉 **v2.0.0 起**：部署完成后，**GA 冷启动时飞书机器人将自动上线**，无需手动操作。
 
 手动控制（调试/维护用）：
 
