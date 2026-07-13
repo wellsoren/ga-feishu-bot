@@ -56,7 +56,7 @@ ga-feishu-bot/
 ├── start_fsbot.py           # 启动器
 ├── fsbot_ctl.py             # 控制模块（start / stop / status）
 ├── lark_native.py           # 飞书全接口 REST 客户端
-├── feishu_api/              # ★ v1.1 飞书业务域命令模块（/日历 /文档 /云盘 …）
+├── feishu_api/              # ★飞书业务域命令模块（/日历 /文档 /云盘 …）
 │   ├── __init__.py          #   命令注册(register_all_commands) + 分发(dispatch_command) + HELP_TEXT
 │   ├── _base.py             #   _call() — lark_native REST 封装
 │   ├── command_router.py    #   命令解析与路由（中英别名、路径参数去尖括号）
