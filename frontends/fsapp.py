@@ -1,13 +1,14 @@
-import argparse, asyncio, importlib.util, json, os, queue as Q, re, sys, threading, time, uuid
+import argparse, asyncio, difflib, importlib.util, json, logging, os, queue as Q, re, sys, threading, time, uuid
 from pathlib import Path
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 os.chdir(PROJECT_ROOT)
 
-import traceback
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import *
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_dir(path):
@@ -48,7 +49,7 @@ def _load_dict_config(path):
                 data = json.load(f)
         return data if isinstance(data, dict) else None
     except Exception as e:
-        print(f"[ERROR] load config failed {path}: {e}")
+        logger.error("load config failed %s: %s", path, e)
         return None
 
 
@@ -79,7 +80,7 @@ def _ensure_runtime_paths():
 
 _ensure_runtime_paths()
 from agentmain import GeneraticAgent
-from frontends.chatapp_common import AgentChatMixin, FILE_HINT, split_text
+from frontends.chatapp_common import AgentChatMixin, split_text
 
 _TAG_PATS = [r"<" + t + r">.*?</" + t + r">" for t in ("thinking", "summary", "tool_use", "file_content")]
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"}
@@ -103,11 +104,18 @@ MEDIA_DIR = os.path.join(TEMP_DIR, "feishu_media")
 os.makedirs(MEDIA_DIR, exist_ok=True)
 
 
-_TRUNC_TAIL = 300  # 截断兜底时保留原文尾部字符数
 _DEDUP_TTL_SEC = 10 * 60
 _DEDUP_MAX = 2000
 _DEDUP_LOCK = threading.Lock()
 _SEEN_MESSAGES = {}
+
+# ===== 可调配置常量 =====
+_TEXT_SPLIT_LIMIT = 4000       # 纯文本消息分片字符上限
+_CARD_SPLIT_LIMIT = 12000      # 单张卡片 markdown 元素字符上限
+_RETRY_INIT_DELAY = 5          # 长连接重试初始延迟(秒)
+_RETRY_MAX_DELAY = 120         # 长连接重试最大延迟(秒)
+_LOG_TEXT_PREVIEW = 200        # 日志中文本预览截断长度
+_BANNER_SEP_LEN = 50           # 启动横幅分隔线长度
 
 
 def _claim_message_once(message_id):
@@ -146,8 +154,7 @@ def _display_text(text):
     cleaned = _strip_files(_clean(text))
     if cleaned:
         return cleaned
-    tail = (text or "").strip()[-_TRUNC_TAIL:]
-    return "⚠️ 模型输出被截断或为空" + (f"\n…{tail}" if tail else "")
+    return ""   # 空输出是正常行为（纯工具调用轮），跳过 Output 区块
 
 
 def _to_allowed_set(value):
@@ -337,7 +344,7 @@ def _load_config():
         data = _load_dict_config(path)
         return data if isinstance(data, dict) else {}, str(path)
     except Exception as e:
-        print(f"[ERROR] load mykey failed {path}: {e}")
+        logger.error("load mykey failed %s: %s", path, e)
         return {}, str(path)
 
 
@@ -423,10 +430,9 @@ def _send_raw(receive_id, payload, msg_type, rtype):
         r = client.im.v1.message.create(body)
         if r.success():
             return r.data.message_id if r.data else None
-        print(f"发送失败: {r.code}, {r.msg}")
+        logger.error("发送失败: %s, %s", r.code, r.msg)
     except Exception as e:
-        print(f"[ERROR] send_message failed: {e}")
-        traceback.print_exc()
+        logger.exception("send_message failed: %s", e)
     return None
 
 
@@ -437,11 +443,10 @@ def _patch_card(message_id, card_json):
         ).build()
         r = client.im.v1.message.patch(body)
         if not r.success():
-            print(f"[ERROR] patch_card 失败: {r.code}, {r.msg}")
+            logger.error("patch_card 失败: %s, %s", r.code, r.msg)
         return r.success()
     except Exception as e:
-        print(f"[ERROR] patch_card exception: {e}")
-        traceback.print_exc()
+        logger.exception("patch_card exception: %s", e)
         return False
 
 
@@ -466,9 +471,9 @@ def _upload_image_sync(file_path):
             response = client.im.v1.image.create(request)
             if response.success():
                 return response.data.image_key
-            print(f"[ERROR] upload image failed: {response.code}, {response.msg}")
+            logger.error("upload image failed: %s, %s", response.code, response.msg)
     except Exception as e:
-        print(f"[ERROR] upload image failed {file_path}: {e}")
+        logger.error("upload image failed %s: %s", file_path, e)
     return None
 
 
@@ -484,9 +489,9 @@ def _upload_file_sync(file_path):
             response = client.im.v1.file.create(request)
             if response.success():
                 return response.data.file_key
-            print(f"[ERROR] upload file failed: {response.code}, {response.msg}")
+            logger.error("upload file failed: %s, %s", response.code, response.msg)
     except Exception as e:
-        print(f"[ERROR] upload file failed {file_path}: {e}")
+        logger.error("upload file failed %s: %s", file_path, e)
     return None
 
 
@@ -497,9 +502,9 @@ def _download_image_sync(message_id, image_key):
         if response.success():
             data = response.file.read() if hasattr(response.file, "read") else response.file
             return data, response.file_name
-        print(f"[ERROR] download image failed: {response.code}, {response.msg}")
+        logger.error("download image failed: %s, %s", response.code, response.msg)
     except Exception as e:
-        print(f"[ERROR] download image failed {image_key}: {e}")
+        logger.error("download image failed %s: %s", image_key, e)
     return None, None
 
 
@@ -512,9 +517,9 @@ def _download_file_sync(message_id, file_key, resource_type="file"):
         if response.success():
             data = response.file.read() if hasattr(response.file, "read") else response.file
             return data, response.file_name
-        print(f"[ERROR] download {resource_type} failed: {response.code}, {response.msg}")
+        logger.error("download %s failed: %s, %s", resource_type, response.code, response.msg)
     except Exception as e:
-        print(f"[ERROR] download {resource_type} failed {file_key}: {e}")
+        logger.error("download %s failed %s: %s", resource_type, file_key, e)
     return None, None
 
 
@@ -615,52 +620,133 @@ def _build_user_message(message):
 def _fmt_tool_call(tc):
     name = tc.get('tool_name', '?')
     args = {k: v for k, v in (tc.get('args') or {}).items() if not k.startswith('_')}
-    return f"- `{name}`({json.dumps(args, ensure_ascii=False)[:200]})"
+    return f"- `{name}`({json.dumps(args, ensure_ascii=False)[:_LOG_TEXT_PREVIEW]})"
+
+
+def _render_diff(old_text, new_text, file_path=""):
+    """生成 unified diff 文本（方案E：无行数上限，由飞书卡片自身限制处理超限）。"""
+    if not old_text and not new_text:
+        return None
+    old_lines = (old_text or "").splitlines(keepends=True)
+    new_lines = (new_text or "").splitlines(keepends=True)
+    diff = list(difflib.unified_diff(old_lines, new_lines,
+                                      fromfile=f'a/{file_path or "old"}',
+                                      tofile=f'b/{file_path or "new"}',
+                                      n=3))
+    if not diff:
+        return None
+    return "".join(diff)
 
 
 def _build_step_detail(resp, tool_calls):
-    """从 LLM response + tool_calls 组装单步展开详情（纯函数）。"""
+    """从 LLM response + tool_calls 组装单步展开详情（纯函数）。
+    方案E: file_patch 步骤注入 diff 可视化"""
     parts = []
     thinking = (getattr(resp, 'thinking', '') or '').strip() if resp else ''
     if thinking:
         parts.append(f"### 💭 Thinking\n{thinking}")
+
+    # 方案E: file_patch 的 diff 可视化
+    if tool_calls:
+        for tc in tool_calls:
+            if tc.get('tool_name') == 'file_patch':
+                args = tc.get('args', {})
+                old_c = args.get('old_content', '')
+                new_c = args.get('new_content', '')
+                path = args.get('path', '')
+                if old_c or new_c:
+                    diff_text = _render_diff(old_c, new_c, path)
+                    if diff_text:
+                        parts.append("### 🔍 Diff\n```diff\n" + diff_text + "\n```")
+
+    # 原有: tool calls 列表
     if tool_calls:
         parts.append("### 🛠 Tool Calls\n" + "\n".join(_fmt_tool_call(tc) for tc in tool_calls))
+
     content = _display_text((getattr(resp, 'content', '') or '')).strip() if resp else ''
-    if content and content != '...':
+    if content:
         parts.append(f"### 📝 Output\n{content}")
     return "\n\n".join(parts)
 
 
 class _TaskCard:
     """飞书任务卡片：单卡片持续 patch；每步一个独立折叠面板（header 显示 summary，展开看详情）。"""
-    _DETAIL_LIMIT = 8000
+    _DETAIL_LIMIT = 10000
+    _TRUNC_SUFFIX = "\n\n_... (内容较长，此处折叠展示)_"
+
+    # 步骤类型 → 状态 emoji 映射（方案C: 进度感知 + 轮转 emoji）
+    # 步骤工具 → 状态 emoji 映射（方案C: 进度感知 + 轮转 emoji）
+    # key 与 _TOOL_SUMMARY_MAP 保持一致，仅含 7 个实际工具 + _default
+    _STATUS_EMOJI_MAP = {
+        "file_read":                 "📖",
+        "file_write":                "📝",
+        "file_patch":                "✏️",
+        "code_run":                  "⚡",
+        "ask_user":                  "💬",
+        "update_working_checkpoint": "📝",
+        "start_long_term_update":    "💾",
+        "_default":                  "⏳",
+    }
 
     def __init__(self, receive_id, rid_type):
         self.rid, self.rtype = receive_id, rid_type
         self.steps = []          # [(summary, detail), ...]
+        self.step_tools = []     # 记录每步的 tool_name，用于轮转 emoji（方案C）
         self.status = "🤔 思考中..."
         self.final = None
         self.msg_id = None
         self.start_fallback_sent = False
         self.final_fallback_sent = False
+        self._start_ts = time.time()       # 方案G: 自计时起始时间
+        self.elapsed_seconds = None        # 方案G: 完成时计算耗时
 
     def _step_panel(self, idx, summary, detail):
+        """方案B: 友好截断阈值+措辞 + 方案C: 进度前缀+状态emoji+当前步展开 + 方案I: Turn→步骤"""
         detail = detail or "_(无输出)_"
         if len(detail) > self._DETAIL_LIMIT:
-            detail = detail[:self._DETAIL_LIMIT] + f"\n\n…(已截断,共 {len(detail)} 字符)"
+            detail = detail[:self._DETAIL_LIMIT] + self._TRUNC_SUFFIX
+
+        is_current = (idx == len(self.steps)) and not self.final
+        if is_current:
+            tool_name = self.step_tools[-1] if self.step_tools else None
+            prefix = self._STATUS_EMOJI_MAP.get(tool_name, self._STATUS_EMOJI_MAP["_default"])
+        else:
+            prefix = "✅"
+
+        header_text = f"{prefix} 步骤 {idx} · {summary}"
         return {
-            "tag": "collapsible_panel", "expanded": False,
-            "header": {"title": {"tag": "plain_text", "content": f"Turn {idx} · {summary}"}},
+            "tag": "collapsible_panel",
+            "expanded": is_current,
+            "header": {"title": {"tag": "plain_text", "content": header_text}},
             "elements": [{"tag": "markdown", "content": detail}],
         }
 
     def _build(self):
-        els = [{"tag": "markdown", "content": f"**{self.status}**"}]
+        """方案C: 顶部状态栏 + 方案D: 最终输出结构化为 📋 结果 + 耗时"""
+        step_count = len(self.steps)
+        if self.final:
+            status_line = f"**✅ 已完成** (共 {step_count} 步)"
+        elif step_count > 0:
+            tool_name = self.step_tools[-1] if self.step_tools else None
+            emoji = self._STATUS_EMOJI_MAP.get(tool_name, self._STATUS_EMOJI_MAP["_default"])
+            status_line = f"**{emoji} 步骤 {step_count}**"
+        else:
+            status_line = f"**{self.status}**"
+        els = [{"tag": "markdown", "content": status_line}]
+
         for i, (s, d) in enumerate(self.steps, 1):
             els.append(self._step_panel(i, s, d))
+
+        # 方案D: 最终输出结构化
         if self.final:
-            els += [{"tag": "hr"}, {"tag": "markdown", "content": self.final}]
+            final_display = self.final
+            meta_line = ""
+            if self.elapsed_seconds is not None:
+                meta_line = f"\n\n---\n*⏱ {self.elapsed_seconds:.1f}s*"
+            els += [
+                {"tag": "hr"},
+                {"tag": "markdown", "content": f"### 📋 结果\n\n{final_display}{meta_line}"},
+            ]
         return _card_raw(els)
 
     def _push(self):
@@ -685,13 +771,19 @@ class _TaskCard:
         if not self._push():
             self._fallback_text("🤔 思考中...")
 
-    def step(self, summary, detail=""):
+    def step(self, summary, detail="", tool_name=None):
+        """方案C: 跟踪 tool_name 用于轮转 emoji + 方案I: Turn→步骤"""
         self.steps.append((summary, detail))
-        self.status = f"⏳ 工作中 · Turn {len(self.steps)}"
+        self.step_tools.append(tool_name or "_default")
+        total = len(self.steps)
+        current_emoji = self._STATUS_EMOJI_MAP.get(tool_name, self._STATUS_EMOJI_MAP["_default"])
+        self.status = f"{current_emoji} 步骤 {total}"
         self._push()
 
     def done(self, text):
-        self.status = "✅ 已完成"
+        """方案G: 自计时耗时计算"""
+        self.elapsed_seconds = time.time() - self._start_ts
+        self.status = f"✅ 已完成 · 耗时 {self.elapsed_seconds:.1f}s"
         self.final = text or "_(无文本输出)_"
         if not self._push():
             self._fallback_text(_display_text(text), final=True)
@@ -702,28 +794,56 @@ class _TaskCard:
             self._fallback_text(f"❌ {msg}", final=True)
 
 
+# 方案A: 工具摘要人性化映射表（已对照 assets/tools_schema.json 核实 7 个 GA 实际工具）
+_TOOL_SUMMARY_MAP = {
+    "file_read":                 "📖 读取文件",
+    "file_write":                "📝 写入文件",
+    "file_patch":                "✏️ 修改文件",
+    "code_run":                  "⚡ 执行代码",
+    "ask_user":                  "💬 询问用户",
+    "update_working_checkpoint": "📝 更新工作记忆",
+    "start_long_term_update":    "💾 更新长期记忆",
+}
+
 def _make_task_hook(card, task_id, on_final):
-    """飞书任务 hook：每轮 patch 卡片状态；结束触发 on_final(raw) 处理附件。"""
+    """飞书任务 hook：每轮 patch 卡片状态；结束触发 on_final(raw) 处理附件。
+    改造点: 方案A(摘要人性化) + 方案G(自计时耗时)"""
     def hook(ctx):
         try:
             parent = getattr(ctx.get("self"), "parent", None)
             if getattr(parent, "_fs_active_task_id", None) != task_id:
                 return
+
             if ctx.get('exit_reason'):
+                # 方案G: 任务结束，done() 自动计算耗时
                 resp = ctx.get('response')
                 raw = resp.content if hasattr(resp, 'content') else str(resp)
                 on_final(raw)
+
             elif ctx.get('summary'):
-                detail = _build_step_detail(ctx.get('response'), ctx.get('tool_calls') or [])
-                card.step(ctx['summary'], detail)
+                # 方案A: 摘要人性化
+                summary = ctx['summary']
+                tool_calls = ctx.get('tool_calls') or []
+                tool_name = tool_calls[0].get('tool_name') if tool_calls else None
+
+                # 检测是否为 raw 工具调用摘要（ga_android.py 降级生成的"调用工具xxx, args: ..."）
+                if summary.startswith("调用工具"):
+                    if tool_name == 'no_tool' or not tool_name:
+                        summary = "💭 思考分析"
+                    else:
+                        summary = _TOOL_SUMMARY_MAP.get(tool_name, f"🔧 执行{tool_name}")
+
+                detail = _build_step_detail(ctx.get('response'), tool_calls)
+                card.step(summary, detail, tool_name=tool_name)
+
         except Exception as e:
-            print(f"[fs hook] error: {e}")
+            logger.error("[fs hook] error: %s", e)
     return hook
 
 
 class FeishuApp(AgentChatMixin):
-    label, source, split_limit = "Feishu", "feishu", 4000
-    card_split_limit = 12000  # 单张卡片 markdown 元素字符上限，超出则分片发送
+    label, source, split_limit = "Feishu", "feishu", _TEXT_SPLIT_LIMIT
+    card_split_limit = _CARD_SPLIT_LIMIT  # 单张卡片 markdown 元素字符上限，超出则分片发送
 
     async def handle_command(self, chat_key, user_input, *, receive_id=None, receive_id_type="open_id", **_):
         """命令分发: 内置命令(/help /stop /status /clear)走原逻辑;
@@ -745,7 +865,7 @@ class FeishuApp(AgentChatMixin):
                                          receive_id=rid, receive_id_type=receive_id_type)
                     return
             except Exception as e:
-                print(f"[feishu_api] dispatch 异常: {e}")
+                logger.error("[feishu_api] dispatch 异常: %s", e)
                 await self.send_card(chat_key, f"❌ 命令处理异常: {e}",
                                      receive_id=rid, receive_id_type=receive_id_type)
                 return
@@ -816,7 +936,7 @@ class FeishuApp(AgentChatMixin):
                 self.agent.abort()
                 await asyncio.to_thread(card.fail, "已停止")
         except Exception as e:
-            traceback.print_exc()
+            logger.exception("run_agent 执行异常")
             await asyncio.to_thread(card.fail, f"错误: {e}")
         finally:
             if getattr(self.agent, "_fs_active_task_id", None) == task_id:
@@ -839,11 +959,9 @@ def get_app():
         try:
             from feishu_api import register_all_commands
             register_all_commands(app)
-            print(f"[feishu_api] 业务域命令已注册: {getattr(app, '_feishu_domains', [])}", flush=True)
+            logger.info("[feishu_api] 业务域命令已注册: %s", getattr(app, '_feishu_domains', []))
         except Exception as e:
-            print(f"[feishu_api] 命令注册失败(不影响主流程): {e}", flush=True)
-            import traceback
-            traceback.print_exc()
+            logger.error("[feishu_api] 命令注册失败(不影响主流程): %s", e, exc_info=True)
     return app
 
 
@@ -851,7 +969,7 @@ def _run_async(coro):
     try:
         asyncio.run(coro)
     except Exception:
-        traceback.print_exc()
+        logger.exception("_run_async 执行异常")
 
 
 def handle_message_recalled(data):
@@ -866,9 +984,9 @@ def handle_message_recalled(data):
                 operator_id = getattr(operator, "operator_id", "?")
                 if hasattr(operator_id, "open_id"):
                     operator_id = operator_id.open_id
-        print(f"[飞书] 消息已撤回: message_id={message_id}, operator={operator_id}")
+        logger.info("[飞书] 消息已撤回: message_id=%s, operator=%s", message_id, operator_id)
     except Exception as e:
-        print(f"[飞书] 处理撤回事件异常: {e}")
+        logger.error("[飞书] 处理撤回事件异常: %s", e)
 
 
 # ===== 群聊 owner 准入控制 =====
@@ -889,7 +1007,7 @@ def _get_bot_open_id():
         if oid:
             _bot_open_id_cache["value"] = oid
     except Exception as e:
-        print(f"[WARN] 获取机器人 open_id 失败: {e}")
+        logger.warning("获取机器人 open_id 失败: %s", e)
     return _bot_open_id_cache.get("value")
 
 
@@ -914,7 +1032,7 @@ def _get_owner_open_id():
             with open(_OWNER_CONFIG_PATH, "r", encoding="utf-8") as f:
                 return str((json.load(f) or {}).get("owner_open_id", "") or "").strip()
     except Exception as e:
-        print(f"[WARN] 读取 owner 配置失败: {e}")
+        logger.warning("读取 owner 配置失败: %s", e)
     return ""
 
 
@@ -926,7 +1044,7 @@ def _bind_owner(open_id):
             json.dump({"owner_open_id": open_id, "bind_time": int(time.time())}, f, ensure_ascii=False, indent=2)
         return True
     except Exception as e:
-        print(f"[ERROR] 绑定 owner 失败: {e}")
+        logger.error("绑定 owner 失败: %s", e)
         return False
 
 
@@ -941,13 +1059,13 @@ def handle_message(data):
     event, message, sender = data.event, data.event.message, data.event.sender
     message_id = getattr(message, "message_id", "") or ""
     if not _claim_message_once(message_id):
-        print(f"忽略重复飞书消息: {message_id}")
+        logger.debug("忽略重复飞书消息: %s", message_id)
         return
     open_id = sender.sender_id.open_id
     chat_id = message.chat_id
     chat_type = getattr(message, "chat_type", "") or ""
     if not PUBLIC_ACCESS and open_id not in ALLOWED_USERS:
-        print(f"未授权用户: {open_id}")
+        logger.warning("未授权用户: %s", open_id)
         return
     # === 群聊准入控制：仅 owner @机器人才响应；首次@机器人自动绑定 owner ===
     if chat_type == "group":
@@ -974,7 +1092,7 @@ def handle_message(data):
         else:
             send_message(open_id, f"⚠️ 暂不支持处理此类飞书消息：{message.message_type}")
         return
-    print(f"收到消息 [{open_id}] ({message.message_type}, {len(image_paths)} images): {user_input[:200]}")
+    logger.debug("收到消息 [%s] (%s, %s images): %s", open_id, message.message_type, len(image_paths), user_input[:_LOG_TEXT_PREVIEW])
     receive_id = chat_id or open_id
     receive_id_type = "chat_id" if chat_id else "open_id"
     chat_key = receive_id
@@ -1034,37 +1152,37 @@ def main():
     global client, APP_ID, APP_SECRET, ALLOWED_USERS, PUBLIC_ACCESS, CONFIG_PATH
     APP_ID, APP_SECRET, ALLOWED_USERS, PUBLIC_ACCESS, CONFIG_PATH = _feishu_config()
     if not APP_ID or not APP_SECRET:
-        print(f"错误: 请在 mykey 配置中填写 fs_app_id 和 fs_app_secret\n配置文件: {CONFIG_PATH}", flush=True)
+        logger.error("请在 mykey 配置中填写 fs_app_id 和 fs_app_secret\n配置文件: %s", CONFIG_PATH)
         sys.exit(1)
     handler = (lark.EventDispatcherHandler.builder("", "")
                .register_p2_im_message_receive_v1(handle_message)
                .register_p1_customized_event("im.message.recalled_v1", handle_message_recalled)
                .register_p2_im_message_recalled_v1(handle_message_recalled)
                .build())
-    retry_delay = 5
+    retry_delay = _RETRY_INIT_DELAY
     while not shutdown_flag.is_set():
         try:
             client = create_client()
             cli = lark.ws.Client(APP_ID, APP_SECRET, event_handler=handler, log_level=lark.LogLevel.INFO)
-            print("=" * 50 + "\n飞书 Agent 已启动（长连接模式）\n" + f"App ID: {APP_ID}\n配置: {CONFIG_PATH}\n等待消息...\n" + "=" * 50, flush=True)
+            logger.info("%s\n飞书 Agent 已启动（长连接模式）\nApp ID: %s\n配置: %s\n等待消息...\n%s", "=" * _BANNER_SEP_LEN, APP_ID, CONFIG_PATH, "=" * _BANNER_SEP_LEN)
             _run_client_with_shutdown_check(cli)
-            retry_delay = 5
+            retry_delay = _RETRY_INIT_DELAY
         except KeyboardInterrupt:
             raise
         except Exception as e:
             if shutdown_flag.is_set():
                 break
-            print(f"[WARN] 飞书长连接断开或启动失败: {e}", flush=True)
-            traceback.print_exc()
+            logger.warning("飞书长连接断开或启动失败: %s", e, exc_info=True)
         if shutdown_flag.is_set():
             break
-        print(f"[INFO] {retry_delay}s 后重连飞书长连接...", flush=True)
+        logger.info("%ss 后重连飞书长连接...", retry_delay)
         time.sleep(retry_delay)
-        retry_delay = min(retry_delay * 2, 120)
-    print("[INFO] 飞书机器人已正常停止", flush=True)
+        retry_delay = min(retry_delay * 2, _RETRY_MAX_DELAY)
+    logger.info("飞书机器人已正常停止")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description="A3Agent Feishu frontend")
     parser.add_argument("--check", action="store_true", help="只检查飞书配置，不启动长连接")
     parser.add_argument("--check-agent", action="store_true", help="检查配置并初始化 Agent/LLM")
