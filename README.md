@@ -92,7 +92,7 @@ ga-feishu-bot/
 
 ```bash
 # 1. 解压部署包
-tar -xzf ga_feishu_bot_v2.0.0.tar.gz
+tar -xzf ga_feishu_bot_v2.0.1.tar.gz
 cd ga_feishu_deploy
 
 # 2. 运行安装（会自动检测 GA 环境，在线下载依赖）
@@ -142,7 +142,7 @@ python setup/patch_decryptor.py --sp-dir site-packages
 
 ### 启动机器人
 
-> 🎉 **v2.0.0 起**：部署完成后，**GA 冷启动时飞书机器人将自动上线**，无需手动操作。
+> 🎉 **v2.0.1 起**：部署完成后，**GA 冷启动时飞书机器人将自动上线**，无需手动操作。
 
 手动控制（调试/维护用）：
 

@@ -28,7 +28,7 @@ import urllib.request
 
 
 # ── 常量 ──────────────────────────────────────────────
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 PACKAGE_NAME = "ga_feishu_deploy"
 
 # 需要部署的文件映射（src_in_package → dest_relative_to_lark_bot）

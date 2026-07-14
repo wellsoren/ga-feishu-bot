@@ -4,6 +4,13 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [2.0.1] - 2026-07-14
+
+### 🔧 维护
+
+- 版本号更新至 v2.0.1（`deploy/install.py`、`README.md`）
+- CHANGELOG 补录 v2.0.1 条目
+
 ## [2.0.0] - 2026-07-13
 
 ### ✨ 新增
