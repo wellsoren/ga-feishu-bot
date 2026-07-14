@@ -130,6 +130,16 @@ python setup/patch_decryptor.py --sp-dir site-packages
 - `fs_app_id` / `fs_app_secret` — 从飞书开放平台获取
 - `fs_allowed_users` — 允许使用机器人的用户列表（`[]` 表示所有人）
 
+### 👑 Owner 准入控制（群聊）
+
+为防止机器人在群里被任意用户打扰，群聊默认启用 **Owner 准入控制**：
+
+- **首次 @机器人**：第一个在群里 @机器人的用户自动绑定为机器人所有者（owner），open_id 持久化写入 `fs_owner.json`（与 `mykey.json` 同目录）
+- **此后**：群内仅当 owner @机器人 时才响应，其他人 @ 或不 @ 均被静默忽略
+- **私聊**：不受此限制，仍按 `fs_allowed_users` 白名单控制
+
+> 重置 owner：删除工作目录下的 `fs_owner.json`，下次在群里 @机器人将重新绑定
+
 ### 启动机器人
 
 > 🎉 **v2.0.0 起**：部署完成后，**GA 冷启动时飞书机器人将自动上线**，无需手动操作。

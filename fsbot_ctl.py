@@ -3,8 +3,8 @@
 ===============================
 修复了「停止后无法重启」「重复启动」「无连接确认」三大问题。
 
-用法:
-    # 一键部署版
+用法 (通过 code_run):
+    import sys; sys.path.insert(0, '/data/user/0/com.ljq.ga/files/ga/lark_bot')
     from fsbot_ctl import start, stop, status
 
     result = start()     # 启动 + 等连接确认
@@ -20,32 +20,15 @@ import threading
 import time
 
 LARK_BOT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-
-def _detect_ga_root():
-    """自动检测 GA 根目录"""
-    d = os.path.dirname(LARK_BOT_DIR)
-    if os.path.isfile(os.path.join(d, 'ga_android.py')):
-        return d
-    candidates = [
-        "/data/data/com.ljq.ga/files/ga",
-        "/data/user/0/com.ljq.ga/files/ga",
-        os.path.expanduser("~/ga"),
-    ]
-    for cand in candidates:
-        if os.path.isfile(os.path.join(cand, "ga_android.py")):
-            return cand
-    return d
-
-
-GA_ROOT = _detect_ga_root()
+GA_ROOT = os.path.dirname(LARK_BOT_DIR)
 SP_DIR = os.path.join(LARK_BOT_DIR, "site-packages")
 BOT_LOG = os.path.join(LARK_BOT_DIR, "bot.log")
 # 不 exec start_fsbot.py（其模块清理逻辑在 Chaquopy 下会失败）
 # 由本模块直接起线程
 
 _MODULES_INITIALIZED = False
-_BOT_THREAD_ID = None  # 记录由本模块启动的线程 ID，防止旧线程干扰
+_BOT_THREAD = None      # bot 线程对象引用（优先于 ID 匹配）
+_BOT_THREAD_ID = None   # 兼容旧代码的线程 ID 记录
 
 
 def _ensure_paths():
@@ -66,12 +49,42 @@ def _ensure_paths():
 
 
 def _find_bot_thread():
-    """查找由本模块启动的 lark-bot 线程（通过 _BOT_THREAD_ID 匹配）"""
-    if _BOT_THREAD_ID is None:
-        return None
+    """查找 lark-bot 线程（对象引用优先 → 枚举回退 → 名称回退）
+
+    三层策略:
+      1. _BOT_THREAD 引用检查（最快，start() 保存的对象引用）
+      2. 遍历所有线程，匹配 target 函数名 _run_bot
+      3. 遍历所有线程，匹配线程名 lark-bot
+    """
+    global _BOT_THREAD, _BOT_THREAD_ID
+
+    # 方法1: 引用检查（start() 保存的线程对象引用）
+    if _BOT_THREAD is not None and _BOT_THREAD.is_alive():
+        _BOT_THREAD_ID = _BOT_THREAD.ident  # 同步 ID，方便旧代码读取
+        return _BOT_THREAD
+
+    # 方法2: 遍历线程，按 target 函数名匹配（兼容旧线程或模块重载）
     for t in threading.enumerate():
-        if t.ident == _BOT_THREAD_ID and t.is_alive():
+        if not t.is_alive():
+            continue
+        target = getattr(t, '_target', None)
+        if target is not None:
+            tname = getattr(target, '__name__', '') or ''
+            if 'run_bot' in tname:
+                _BOT_THREAD = t
+                _BOT_THREAD_ID = t.ident
+                return t
+
+    # 方法3: 按线程名回退
+    for t in threading.enumerate():
+        if not t.is_alive():
+            continue
+        tname = t.name or ''
+        if 'lark-bot' in tname:
+            _BOT_THREAD = t
+            _BOT_THREAD_ID = t.ident
             return t
+
     return None
 
 
@@ -246,8 +259,9 @@ def start(timeout: int = 15):
 
     bot_thread = threading.Thread(target=_run_bot, daemon=False, name="lark-bot")
     bot_thread.start()
-    global _BOT_THREAD_ID
-    _BOT_THREAD_ID = bot_thread.ident
+    global _BOT_THREAD, _BOT_THREAD_ID
+    _BOT_THREAD = bot_thread        # 保存对象引用，供 _find_bot_thread() 快速定位
+    _BOT_THREAD_ID = bot_thread.ident  # 兼容旧代码
 
     # ── 等待连接确认 ──
     conn_info = _wait_for_connection(timeout)
@@ -291,7 +305,7 @@ def stop(timeout: int = 10):
         }
     """
     _ensure_paths()
-    global _BOT_THREAD_ID
+    global _BOT_THREAD, _BOT_THREAD_ID
 
     bot = _find_bot_thread()
     if not bot:
@@ -331,8 +345,10 @@ def stop(timeout: int = 10):
                 "message": f"机器人已设置停止标志，但线程仍在清理（{timeout+5}s 后仍未退出）",
                 "warning": True,
             }
+        _BOT_THREAD = None
         _BOT_THREAD_ID = None
         return {"success": True, "message": "飞书机器人已正常停止（额外等待后退出）"}
 
+    _BOT_THREAD = None
     _BOT_THREAD_ID = None
     return {"success": True, "message": "飞书机器人已正常停止"}

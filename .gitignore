@@ -33,6 +33,9 @@ Thumbs.db
 # 部署包依赖（大文件，已包含在仓库中，勿误删）
 # deploy/site_packages.tar.gz
 
+# 备份文件
+*.bak
+
 # 临时文件
 tmp/
 temp/

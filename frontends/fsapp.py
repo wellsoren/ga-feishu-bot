@@ -871,6 +871,72 @@ def handle_message_recalled(data):
         print(f"[飞书] 处理撤回事件异常: {e}")
 
 
+# ===== 群聊 owner 准入控制 =====
+# owner 绑定持久化文件（独立于密钥文件 mykey.json，仅存 owner open_id）
+_OWNER_CONFIG_PATH = os.path.join(os.path.dirname(CONFIG_PATH), "fs_owner.json")
+_bot_open_id_cache = {"value": None}
+
+
+def _get_bot_open_id():
+    """获取机器人自身 open_id（用于判断群聊是否被@），模块级缓存。失败返回 None。"""
+    if _bot_open_id_cache.get("value"):
+        return _bot_open_id_cache.get("value")
+    try:
+        import lark_native
+        lark_native._load()
+        resp = lark_native.api("GET", "/bot/v3/info/")
+        oid = (resp.get("bot") or {}).get("open_id")
+        if oid:
+            _bot_open_id_cache["value"] = oid
+    except Exception as e:
+        print(f"[WARN] 获取机器人 open_id 失败: {e}")
+    return _bot_open_id_cache.get("value")
+
+
+def _is_at_bot(mentions):
+    """判断消息是否 @ 了机器人。mentions 为飞书 Mention 列表。"""
+    if not mentions:
+        return False
+    bot_id = _get_bot_open_id()
+    if not bot_id:
+        return False
+    for m in mentions:
+        uid = getattr(m, "id", None)
+        if uid and getattr(uid, "open_id", None) == bot_id:
+            return True
+    return False
+
+
+def _get_owner_open_id():
+    """读取已绑定的 owner open_id，未绑定返回空串。"""
+    try:
+        if os.path.isfile(_OWNER_CONFIG_PATH):
+            with open(_OWNER_CONFIG_PATH, "r", encoding="utf-8") as f:
+                return str((json.load(f) or {}).get("owner_open_id", "") or "").strip()
+    except Exception as e:
+        print(f"[WARN] 读取 owner 配置失败: {e}")
+    return ""
+
+
+def _bind_owner(open_id):
+    """绑定 owner open_id 并持久化，返回是否成功。"""
+    try:
+        os.makedirs(os.path.dirname(_OWNER_CONFIG_PATH), exist_ok=True)
+        with open(_OWNER_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump({"owner_open_id": open_id, "bind_time": int(time.time())}, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        print(f"[ERROR] 绑定 owner 失败: {e}")
+        return False
+
+
+def _strip_at_placeholders(text):
+    """清理飞书文本中 @某人 的占位符（@_user_N）。"""
+    if not text:
+        return text
+    return re.sub(r"@_user_\d+\s*", "", text).strip()
+
+
 def handle_message(data):
     event, message, sender = data.event, data.event.message, data.event.sender
     message_id = getattr(message, "message_id", "") or ""
@@ -879,11 +945,30 @@ def handle_message(data):
         return
     open_id = sender.sender_id.open_id
     chat_id = message.chat_id
+    chat_type = getattr(message, "chat_type", "") or ""
     if not PUBLIC_ACCESS and open_id not in ALLOWED_USERS:
         print(f"未授权用户: {open_id}")
         return
+    # === 群聊准入控制：仅 owner @机器人才响应；首次@机器人自动绑定 owner ===
+    if chat_type == "group":
+        mentions = getattr(message, "mentions", None) or []
+        at_bot = _is_at_bot(mentions)
+        owner = _get_owner_open_id()
+        if not owner:
+            if at_bot:
+                if _bind_owner(open_id):
+                    send_message(chat_id, "✅ 你已成为机器人所有者(owner)，open_id 已绑定。此后群内仅你 @我 时我才会响应。", receive_id_type="chat_id")
+                else:
+                    send_message(chat_id, "⚠️ owner 绑定失败，请稍后重试。", receive_id_type="chat_id")
+            return
+        if not (open_id == owner and at_bot):
+            return
     user_input, image_paths = _build_user_message(message)
+    if chat_type == "group" and message.message_type == "text":
+        user_input = _strip_at_placeholders(user_input)
     if not user_input:
+        if chat_type == "group":
+            return
         if chat_id:
             send_message(chat_id, f"⚠️ 暂不支持处理此类飞书消息：{message.message_type}", receive_id_type="chat_id")
         else:
@@ -911,6 +996,40 @@ def handle_message(data):
 shutdown_flag = threading.Event()
 
 
+def _run_client_with_shutdown_check(cli):
+    """运行 WS 客户端，select 阶段每秒检查 shutdown_flag 以实现可中断阻塞。
+
+    替代 cli.start() 中不可中断的 loop.run_until_complete(_select())。"""
+    loop = asyncio.get_event_loop()
+
+    # 阶段1: 连接（复用 cli.start() 的重连逻辑）
+    try:
+        loop.run_until_complete(cli._connect())
+    except Exception:
+        # 尝试断开 + 自动重连（同 cli.start() 行为）
+        try:
+            loop.run_until_complete(cli._disconnect())
+        except Exception:
+            pass
+        if getattr(cli, '_auto_reconnect', True):
+            try:
+                loop.run_until_complete(cli._reconnect())
+            except Exception:
+                raise
+        else:
+            raise
+
+    # 阶段2: 启动心跳
+    loop.create_task(cli._ping_loop())
+
+    # 阶段3: 可中断的 select（每秒检查 shutdown_flag）
+    async def _shutdown_aware_select():
+        while not shutdown_flag.is_set():
+            await asyncio.sleep(1)
+
+    loop.run_until_complete(_shutdown_aware_select())
+
+
 def main():
     global client, APP_ID, APP_SECRET, ALLOWED_USERS, PUBLIC_ACCESS, CONFIG_PATH
     APP_ID, APP_SECRET, ALLOWED_USERS, PUBLIC_ACCESS, CONFIG_PATH = _feishu_config()
@@ -928,7 +1047,7 @@ def main():
             client = create_client()
             cli = lark.ws.Client(APP_ID, APP_SECRET, event_handler=handler, log_level=lark.LogLevel.INFO)
             print("=" * 50 + "\n飞书 Agent 已启动（长连接模式）\n" + f"App ID: {APP_ID}\n配置: {CONFIG_PATH}\n等待消息...\n" + "=" * 50, flush=True)
-            cli.start()
+            _run_client_with_shutdown_check(cli)
             retry_delay = 5
         except KeyboardInterrupt:
             raise
