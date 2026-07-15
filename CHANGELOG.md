@@ -4,6 +4,24 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [2.0.2] - 2026-07-15
+
+### ✨ 卡片消息全面改造
+
+- 方案 A — **摘要人性化**：`_TOOL_SUMMARY_MAP` 语义映射，`_make_task_hook` 自动加载
+- 方案 B — **截断温和化**：`_DETAIL_LIMIT` 8000→10000，移除恐慌措辞
+- 方案 C — **进度感知**：`_step_panel` 当前步自动展开 + 状态 emoji，状态栏实时轮转
+- 方案 D — **最终输出结构化**：`_build()` 加 "📋 结果" 标题区域
+- 方案 E — **代码 diff 可视化**：`_render_diff()` + `_build_step_detail` diff 注入
+- 方案 G — **耗时显示**：`_TaskCard` 自计时 + `done()` 自动显示耗时
+- 方案 I — **"Turn"→"步骤"中文化**：`_step_panel` + `_TaskCard.step` 同步
+
+### 🔧 代码质量
+
+- 移除未使用 `FILE_HINT` import
+- 32 处 `print()` → `logging` 分级迁移
+- 6 处魔法数字集中为配置常量
+
 ## [2.0.1] - 2026-07-14
 
 ### 🔧 维护
