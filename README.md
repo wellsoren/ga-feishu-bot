@@ -21,7 +21,9 @@
 
 - ✅ **消息收发** — 实时响应飞书消息（文本、图片、文件等）
 - ✅ **智能对话** — 接入 LLM（大语言模型），成为 AI 助手
-- ✅ **飞书 API** — 完整 REST API 封装（IM、文档、多维表格等）
+- ✅ **飞书 API** — 完整 REST API 封装（IM、文档、多维表格、知识库等）
+- ✅ **多维表格 / 知识库** — bitable/wiki 业务域命令模块
+- ✅ **群聊上下文感知** — @机器人自动识别群名、群ID，"总结本群"等命令精准作用于当前群
 - ✅ **用户 OAuth** — 支持用户身份授权，访问私有资源
 
 ### 谁适合用这个项目？
@@ -43,6 +45,7 @@ ga-feishu-bot/
 ├── frontends/               # 机器人核心
 │   ├── __init__.py
 │   ├── fsapp.py             # 主程序 — WebSocket 长连接 + 消息处理
+│   ├── feishu_context.py    # 群聊上下文 — 自动识别群名/群ID + get_chat_name 缓存
 │   └── chatapp_common.py    # 通用工具 — AgentChatMixin
 ├── setup/                   # 部署工具
 │   ├── fetch_deps.py        # 从 PyPI 下载纯 Python 依赖
@@ -56,16 +59,18 @@ ga-feishu-bot/
 ├── start_fsbot.py           # 启动器
 ├── fsbot_ctl.py             # 控制模块（start / stop / status）
 ├── lark_native.py           # 飞书全接口 REST 客户端
-├── feishu_api/              # ★飞书业务域命令模块（/日历 /文档 /云盘 …）
+├── feishu_api/              # ★飞书业务域命令模块（/日历 /文档 /多维表格 /知识库 …）
 │   ├── __init__.py          #   命令注册(register_all_commands) + 分发(dispatch_command) + HELP_TEXT
 │   ├── _base.py             #   _call() — lark_native REST 封装
 │   ├── command_router.py    #   命令解析与路由（中英别名、路径参数去尖括号）
 │   ├── formatters.py        #   卡片化输出格式渲染（分片）
-│   ├── calendar.py           #   日历/日程
-│   ├── docx.py               #   云文档（read / create）
-│   ├── drive.py              #   云盘
-│   ├── im.py                 #   IM 消息
-│   └── permissions.py        #   权限总览
+│   ├── bitable.py           #   多维表格（list / read / create / update）
+│   ├── calendar.py          #   日历/日程
+│   ├── docx.py              #   云文档（read / create）
+│   ├── drive.py             #   云盘
+│   ├── im.py                #   IM 消息
+│   ├── permissions.py       #   权限总览
+│   └── wiki.py              #   知识库（list / read / search）
 ├── .lark_workspace          # 工作目录标记
 ├── README.md                # ← 就是本文件
 ├── LICENSE                  # MIT 许可证
@@ -177,6 +182,26 @@ python start_fsbot.py
 - 支持 bot 身份（tenant_access_token）
 - 支持用户身份（user_access_token，OAuth 授权码流）
 - 一行代码调用任何开放平台端点
+
+### 📊 多维表格（bitable）
+- `feishu_api/bitable.py` — 多维表格操作模块
+- 支持 `/多维表格 list` — 列出多维表格
+- 支持 `/多维表格 read` — 读取表格记录，支持筛选条件
+- 支持 `/多维表格 create` — 新增记录
+- 支持 `/多维表格 update` — 更新已有记录
+
+### 📚 知识库（wiki）
+- `feishu_api/wiki.py` — 知识库操作模块
+- 支持 `/知识库 list` — 列出知识空间
+- 支持 `/知识库 read` — 获取知识库节点详情
+- 支持 `/知识库 search` — 搜索知识库内容
+
+### 👥 群聊上下文感知
+- `frontends/feishu_context.py` — 群聊上下文模块
+- @机器人自动识别当前群名和群 ID，无需手动指定
+- "总结本群" 等命令准确作用于正在对话的群，不混淆
+- `get_chat_name` 自动缓存群名，减少重复请求
+- 支持多群隔离：多个群聊的上下文互不干扰
 
 ---
 
