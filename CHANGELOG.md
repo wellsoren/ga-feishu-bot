@@ -4,20 +4,23 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
-## [2.0.3] - 2026-07-19
+## [2.0.4] - 2026-07-19
 
 ### ✨ 新增模块
 
-- `feishu_api/bitable.py` — 多维表格操作模块
-- `feishu_api/wiki.py` — 知识库操作模块
+- `frontends/feishu_context.py` — 飞书会话上下文注入模块，让机器人自动识别当前群聊（群ID + 群名）
 
 ### 🔧 更新
 
-- `feishu_api/__init__.py` — 注册新命令、增强分发逻辑
-- `feishu_api/docx.py` — 云文档功能增强
-- `feishu_api/formatters.py` — 格式化输出优化
-- `feishu_api/im.py` — IM 消息模块更新
-- `feishu_api/permissions.py` — 权限模块更新
+- `frontends/fsapp.py` — run_agent() 注入群上下文（set_context_env + build_context_prompt + finally 清理）、handle_message() 四路 chat_id 提取链（_extract_raw_chat_id + _get_chat_id_by_message_id）
+
+### 🎯 功能
+
+- 群聊中 @机器人，机器人自动知晓当前所在群的群名和群ID
+- "总结本群" 等命令准确作用于正在对话的群，不再混淆
+- `get_chat_name` 自动缓存群名（TTL=86400s），查不到时友好降级为 chat_id
+
+## [2.0.3] - 2026-07-19
 
 ## [2.0.2] - 2026-07-15
 
