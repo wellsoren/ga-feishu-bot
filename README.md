@@ -97,7 +97,7 @@ ga-feishu-bot/
 
 ```bash
 # 1. 解压部署包
-tar -xzf ga_feishu_bot_v2.0.4.tar.gz
+tar -xzf ga_feishu_bot_v2.0.5.tar.gz
 cd ga_feishu_deploy
 
 # 2. 运行安装（会自动检测 GA 环境，在线下载依赖）
@@ -229,11 +229,15 @@ api("POST", "/open-apis/im/v1/messages", {
 ### 控制机器人启停
 
 ```python
-from fsbot_ctl import start, stop, status
+from fsbot_ctl import start, stop, status, restart
 
 # 启动（带连接确认，最长等30秒）
 result = start(timeout=30)
 print(result)  # {"success": True, "message": "..."}
+
+# 一键重启（停止→清模块缓存→启动，加载新代码）
+result = restart()
+print(result)  # {"success": True, "message": "飞书机器人已启动并连接成功"}
 
 # 查看状态
 info = status()

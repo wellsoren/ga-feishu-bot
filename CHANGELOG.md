@@ -4,6 +4,21 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [2.0.5] - 2026-07-20
+
+### ✨ 新增
+
+- `fsbot_ctl.py` — 新增 `restart()` 一键重启函数（停止→清 `sys.modules` 缓存→启动，真加载新代码）
+- `fsbot_ctl.py` — 新增 `_clean_bot_modules()` 模块缓存清理（路径过滤，零误伤第三方库）
+- `fsbot_ctl.py` — `start()` 集成 `_reset_modules_for_restart()`，确保启动时加载最新代码
+
+### 🔧 更新
+
+- `ga_bot_ctl.py` — 导出 `restart()`，支持 "重启飞书机器人" 命令
+- `lark_bot_sop.md` — 新增重启章节 + 边界场景提示
+- `README.md` — 控制段新增 `restart()` 使用示例
+- `modes_index.md` — 触发词新增「重启飞书机器人」
+
 ## [2.0.4] - 2026-07-19
 
 ### ✨ 群聊上下文感知

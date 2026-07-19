@@ -89,7 +89,10 @@ def _find_bot_thread():
 
 
 def _reset_modules_for_restart():
-    """重置模块状态，使停止后能再次启动"""
+    """重置模块状态 + 清除 sys.modules 缓存，使停止后能再次启动并加载新代码"""
+    # 0. 先清除用户代码缓存，使重启后加载最新代码
+    _clean_bot_modules()
+
     # 1. 重置 shutdown_flag
     try:
         from frontends import fsapp
@@ -112,6 +115,31 @@ def _reset_modules_for_restart():
                 ws_mod.loop = new_loop
     except ImportError:
         pass
+
+
+def _clean_bot_modules():
+    """清除 lark_bot 用户代码的 sys.modules 缓存（不清第三方库和自身）
+
+    基于文件路径过滤：所有 __file__ 以 lark_bot 目录开头、且不在
+    site-packages/ 下的模块，从 sys.modules 中删除。这样 restart()
+    或 start() 重新导入时会从磁盘加载最新源码。
+    不清除: fsbot_ctl, ga_bot_ctl, lark_oapi.*, httpx.* 等第三方库。
+    """
+    skip_names = {'fsbot_ctl', 'ga_bot_ctl'}
+    lbd = os.path.dirname(os.path.abspath(__file__))
+
+    for name, mod in list(sys.modules.items()):
+        if mod is None or name in skip_names:
+            continue
+        try:
+            fp = getattr(mod, '__file__', '') or ''
+            if fp:
+                real_fp = os.path.realpath(fp)
+                if real_fp.startswith(os.path.realpath(lbd)):
+                    if 'site-packages' not in real_fp:
+                        sys.modules.pop(name, None)
+        except Exception:
+            pass
 
 
 def _wait_for_connection(timeout: float) -> dict:
@@ -352,3 +380,35 @@ def stop(timeout: int = 10):
     _BOT_THREAD = None
     _BOT_THREAD_ID = None
     return {"success": True, "message": "飞书机器人已正常停止"}
+
+
+def restart(stop_timeout: int = 3, start_timeout: int = 15):
+    """重启飞书机器人 = 停止 → 等线程退出 → 清模块缓存 → 启动
+
+    Args:
+        stop_timeout:  等待线程退出超时（秒），默认 3s
+        start_timeout: 等待 WebSocket 连接超时（秒），默认 15s
+
+    Returns:
+        dict: start() 的返回结果
+
+    内部流程:
+        ① stop(timeout=stop_timeout)
+        ② 循环等待旧线程退出（最多 10s，每 0.5s 检测一次）
+        ③ _clean_bot_modules() 清缓存
+        ④ start(timeout=start_timeout) 自动调 _reset_modules_for_restart
+    """
+    # 1. 停止
+    stop_result = stop(timeout=stop_timeout)
+
+    # 2. 等旧线程完全退出（最多等 10s）
+    for _ in range(20):
+        if not _find_bot_thread():
+            break
+        time.sleep(0.5)
+
+    # 3. 清模块缓存
+    _clean_bot_modules()
+
+    # 4. 启动（内部自动调 _reset_modules_for_restart → 重建 loop + 清标志 + 起新线程）
+    return start(timeout=start_timeout)
