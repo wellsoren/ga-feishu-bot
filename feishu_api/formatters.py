@@ -224,3 +224,74 @@ def format_permissions(report):
             if url:
                 lines.append(f"  开通：{url}")
     return "\n".join(lines)
+
+
+# ----------------------------------------------------------------------
+# 多维表格
+# ----------------------------------------------------------------------
+
+def format_bitable_tables(tables):
+    if not tables:
+        return "📭 没有数据表"
+    lines = ["📊 **数据表列表**"]
+    for t in tables:
+        name = t.get("name", "?")
+        tid = t.get("table_id", "")
+        lines.append(f"- **{name}** `{tid}`")
+    return "\n".join(lines)
+
+
+def format_bitable_fields(fields):
+    if not fields:
+        return "📭 没有字段"
+    lines = ["📋 **字段列表**"]
+    type_map = {1: "文本", 2: "数字", 3: "单选", 4: "多选", 5: "日期",
+                7: "复选框", 11: "人员", 13: "电话", 15: "超链接",
+                17: "附件", 18: "单向关联", 19: "查找引用",
+                20: "公式", 21: "双向关联", 22: "位置", 23: "群组",
+                1001: "创建时间", 1002: "最后更新时间",
+                1003: "创建人", 1004: "修改人", 1005: "自动编号"}
+    for f in fields:
+        fname = f.get("field_name", "?")
+        ftype = f.get("type", 0)
+        type_name = type_map.get(ftype, f"type={ftype}")
+        fid = f.get("field_id", "")
+        lines.append(f"- **{fname}** ({type_name}) `{fid}`")
+    return "\n".join(lines)
+
+
+def format_bitable_records(records, max_show=20):
+    if not records:
+        return "📭 没有记录"
+    lines = [f"📝 **记录列表** (共{len(records)}条, 显示前{min(len(records), max_show)}条)"]
+    for rec in records[:max_show]:
+        rid = rec.get("record_id", "")
+        fields = rec.get("fields", {})
+        # 取第一个非空字段作为预览
+        preview = ""
+        for k, v in fields.items():
+            if v:
+                preview = f"{k}={_truncate_val(v)}"
+                break
+        lines.append(f"- `{rid}` {preview}")
+    if len(records) > max_show:
+        lines.append(f"... 还有 {len(records) - max_show} 条")
+    return "\n".join(lines)
+
+
+def _truncate_val(val, maxlen=30):
+    if isinstance(val, list):
+        # 多选/附件等列表类型
+        parts = []
+        for item in val[:3]:
+            if isinstance(item, dict):
+                parts.append(str(item.get("text", item.get("name", item))))
+            else:
+                parts.append(str(item))
+        s = ",".join(parts)
+        if len(val) > 3:
+            s += "..."
+        return s[:maxlen]
+    if isinstance(val, dict):
+        return str(val.get("text", val.get("name", val)))[:maxlen]
+    return str(val)[:maxlen]

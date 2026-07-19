@@ -74,14 +74,35 @@ class DocxAPI(FeishuApiBase):
             f"/docx/v1/documents/{document_id}/blocks/{block_id}",
             payload=payload)
 
-    def create_document(self, folder_token=None):
-        """创建空文档。返回 {document_id, revision_id}。
-        folder_token 指定父文件夹(默认根目录)。
+    def create_document(self, title=None, folder_token=None):
+        """创建文档。返回 {document_id, revision_id}。
+        title: 文档标题
+        folder_token: 指定父文件夹(默认根目录)。
         scope: docx:document(读写)。
         """
+        payload = {}
+        if title:
+            payload["title"] = title
         params = {"folder_token": folder_token} if folder_token else None
-        result = self._call("POST", "/docx/v1/documents", params=params)
-        return result   # {"document": {"document_id":..., "revision_id":-1}}
+        result = self._call("POST", "/docx/v1/documents", params=params, payload=payload)
+        return result   # {"document": {"document_id":..., "revision_id":-1, "title":...}}
+
+    def add_heading_block(self, document_id, text, level=1):
+        """向文档追加标题块（heading block_type=3,4,5 对应 h1/h2/h3）。"""
+        block_type_map = {1: 3, 2: 4, 3: 5}
+        bt = block_type_map.get(level, 3)
+        children = [{
+            "block_type": bt,
+            "heading1" if bt == 3 else "heading2" if bt == 4 else "heading3": {
+                "elements": [{"text_run": {"content": text}}],
+                "style": {}
+            }
+        }]
+        payload = {"index": 0, "children": children}
+        return self._call(
+            "POST",
+            f"/docx/v1/documents/{document_id}/blocks/{document_id}/children",
+            payload=payload)
 
     def add_text_blocks(self, document_id, lines):
         """向文档根块追加文本块(每行一个段落)。

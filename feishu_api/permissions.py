@@ -10,11 +10,15 @@ def _domain_classes():
     from .im import InstantMessagingAPI
     from .drive import DriveAPI
     from .docx import DocxAPI
+    from .bitable import BitableAPI
+    from .wiki import WikiAPI
     return [
         ("日历", CalendarAPI),
         ("群聊/消息", InstantMessagingAPI),
         ("云空间/文件", DriveAPI),
         ("文档", DocxAPI),
+        ("多维表格", BitableAPI),
+        ("知识库", WikiAPI),
     ]
 
 

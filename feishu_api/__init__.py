@@ -163,6 +163,42 @@ def _permission_handler(app, cmd):
     return F.format_permissions(report)
 
 
+def _bitable_handler(app, cmd):
+    """多维表格: 查表/查记录/查字段。"""
+    from .bitable import BitableAPI
+    bt = BitableAPI()
+    action = cmd.action
+    args = cmd.args
+    app_token = cmd.kwargs.get("app") or cmd.kwargs.get("app_token")
+
+    if action in ("tables", "表", "列表"):
+        if not app_token:
+            return "用法: /表格 tables --app <app_token>"
+        tables = bt.list_tables(app_token)
+        return F.format_bitable_tables(tables)
+
+    if action in ("records", "记录"):
+        table_id = cmd.kwargs.get("table") or cmd.kwargs.get("table_id")
+        if not app_token or not table_id:
+            return ("用法: /表格 records --app <app_token> "
+                    "--table <table_id>")
+        records = bt.list_records(app_token, table_id)
+        return F.format_bitable_records(records)
+
+    if action in ("fields", "字段"):
+        table_id = cmd.kwargs.get("table") or cmd.kwargs.get("table_id")
+        if not app_token or not table_id:
+            return ("用法: /表格 fields --app <app_token> "
+                    "--table <table_id>")
+        fields = bt.list_fields(app_token, table_id)
+        return F.format_bitable_fields(fields)
+
+    return ("用法:\n"
+            "  /表格 tables --app <app_token>\n"
+            "  /表格 records --app <app_token> --table <table_id>\n"
+            "  /表格 fields --app <app_token> --table <table_id>")
+
+
 def _help_handler(app, cmd):
     return HELP_TEXT
 
@@ -197,6 +233,7 @@ _DOMAIN_MAP = {
     "消息": _message_handler,
     "文档": _doc_handler,
     "文件": _file_handler,
+    "表格": _bitable_handler,
     "权限": _permission_handler,
     "帮助": _help_handler,
     "help": _help_handler,
