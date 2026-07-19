@@ -81,6 +81,12 @@ def _ensure_runtime_paths():
 _ensure_runtime_paths()
 from agentmain import GeneraticAgent
 from frontends.chatapp_common import AgentChatMixin, split_text
+from frontends.feishu_context import (
+    build_context_prompt,
+    build_extra_sys_prompt,
+    clear_context_env,
+    set_context_env,
+)
 
 _TAG_PATS = [r"<" + t + r">.*?</" + t + r">" for t in ("thinking", "summary", "tool_use", "file_content")]
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"}
@@ -912,6 +918,17 @@ class FeishuApp(AgentChatMixin):
             card.done(_display_text(raw))
             _send_generated_files(rid, raw, receive_id_type=receive_id_type)
 
+        # 注入当前飞书会话上下文，让 LLM 知道"本群"指哪个群。
+        # 查群名失败时会优雅降级为"当前群聊"，不会把原始 chat_id 暴露给用户。
+        old_chat_id_env, old_rid_type_env = set_context_env(rid, receive_id_type)
+        text = build_context_prompt(rid, receive_id_type, text)
+
+        # 同时追加到 system prompt，作为最高优先级规则让 LLM 遵守。
+        backend = getattr(getattr(self.agent, "llmclient", None), "backend", None)
+        old_extra_sys_prompt = getattr(backend, "extra_sys_prompt", "") if backend else ""
+        if backend:
+            backend.extra_sys_prompt = (old_extra_sys_prompt or "") + build_extra_sys_prompt(rid, receive_id_type)
+
         try:
             await asyncio.to_thread(card.start)
             if not hasattr(self.agent, '_turn_end_hooks'):
@@ -939,6 +956,14 @@ class FeishuApp(AgentChatMixin):
             logger.exception("run_agent 执行异常")
             await asyncio.to_thread(card.fail, f"错误: {e}")
         finally:
+            # 清理飞书会话上下文环境变量，避免影响后续任务。
+            clear_context_env(old_chat_id_env, old_rid_type_env)
+            # 恢复 system prompt 追加内容。
+            if backend:
+                try:
+                    backend.extra_sys_prompt = old_extra_sys_prompt
+                except AttributeError:
+                    pass
             if getattr(self.agent, "_fs_active_task_id", None) == task_id:
                 try:
                     delattr(self.agent, "_fs_active_task_id")
@@ -995,20 +1020,168 @@ _OWNER_CONFIG_PATH = os.path.join(os.path.dirname(CONFIG_PATH), "fs_owner.json")
 _bot_open_id_cache = {"value": None}
 
 
+_tenant_token_cache = {"value": None, "expires": 0}
+
+
+def _get_tenant_access_token():
+    """获取 tenant_access_token，带 5400 秒缓存。失败返回 None。
+
+    复用 mykey.json 的 APP_ID/APP_SECRET，不依赖 lark_native 的凭证链。
+    """
+    now = time.time()
+    if _tenant_token_cache["value"] and _tenant_token_cache["expires"] > now + 60:
+        return _tenant_token_cache["value"]
+    try:
+        import urllib.request
+        import json as _json
+        token_body = _json.dumps({"app_id": APP_ID, "app_secret": APP_SECRET}).encode("utf-8")
+        token_req = urllib.request.Request(
+            "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            data=token_body,
+            headers={"Content-Type": "application/json; charset=utf-8"},
+            method="POST",
+        )
+        with urllib.request.urlopen(token_req, timeout=15) as r:
+            data = _json.loads(r.read()) or {}
+        token = data.get("tenant_access_token")
+        expire = data.get("expire", 7200)
+        if token:
+            _tenant_token_cache["value"] = token
+            _tenant_token_cache["expires"] = now + expire
+            return token
+    except Exception as e:
+        logger.warning("获取 tenant_access_token 失败: %s", e)
+    return _tenant_token_cache["value"]
+
+
 def _get_bot_open_id():
-    """获取机器人自身 open_id（用于判断群聊是否被@），模块级缓存。失败返回 None。"""
+    """获取机器人自身 open_id（用于判断群聊是否被@），模块级缓存。失败返回 None。
+
+    复用 mykey.json 的 APP_ID/APP_SECRET 取 tenant_access_token，直接调
+    /bot/v3/info/，不再依赖 lark_native（其 _CRED 凭证链在 lark_bot 部署下
+    未初始化，会导致永久返回 None → _is_at_bot 恒 False → 群@机器人无响应）。
+    """
     if _bot_open_id_cache.get("value"):
         return _bot_open_id_cache.get("value")
+    token = _get_tenant_access_token()
+    if not token:
+        return _bot_open_id_cache.get("value")
     try:
-        import lark_native
-        lark_native._load()
-        resp = lark_native.api("GET", "/bot/v3/info/")
-        oid = (resp.get("bot") or {}).get("open_id")
+        import urllib.request
+        import json as _json
+        info_req = urllib.request.Request(
+            "https://open.feishu.cn/open-apis/bot/v3/info/",
+            headers={"Authorization": "Bearer " + token},
+            method="GET",
+        )
+        with urllib.request.urlopen(info_req, timeout=15) as r:
+            oid = ((_json.loads(r.read()) or {}).get("bot") or {}).get("open_id")
         if oid:
             _bot_open_id_cache["value"] = oid
     except Exception as e:
         logger.warning("获取机器人 open_id 失败: %s", e)
     return _bot_open_id_cache.get("value")
+
+
+def _get_chat_id_by_message_id(message_id):
+    """通过 message_id 反查消息详情，返回 chat_id。失败返回空字符串。
+
+    当飞书事件推送中 message.chat_id 为空时，用此接口兜底获取真实 chat_id。
+    优先用 urllib 直接调飞书 API；若失败则回退到 lark_native.api()。
+    """
+    if not message_id:
+        return ""
+    token = _get_tenant_access_token()
+    if not token:
+        return ""
+    try:
+        import urllib.request
+        import urllib.parse
+        import json as _json
+        encoded_id = urllib.parse.quote(message_id, safe="")
+        url = f"https://open.feishu.cn/open-apis/im/v1/messages/{encoded_id}"
+        req = urllib.request.Request(
+            url,
+            headers={"Authorization": "Bearer " + token},
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = _json.loads(r.read()) or {}
+        if data.get("code") != 0:
+            logger.warning("反查消息详情失败: %s %s", data.get("code"), data.get("msg"))
+            return ""
+        items = (data.get("data") or {}).get("items") or []
+        if items:
+            return (items[0] or {}).get("chat_id", "")
+    except Exception as e:
+        logger.warning("urllib 反查消息详情异常: %s", e)
+
+    # 兜底：尝试 lark_native.api()（GA 主环境若已初始化凭证链则可工作）
+    try:
+        import lark_native
+        data = lark_native.api("GET", f"/im/v1/messages/{message_id}")
+        items = ((data or {}).get("data") or {}).get("items") or []
+        if items:
+            return (items[0] or {}).get("chat_id", "")
+    except Exception as e:
+        logger.warning("lark_native 反查消息详情异常: %s", e)
+    return ""
+
+
+def _extract_raw_chat_id(data):
+    """从 SDK 事件对象的原始 __dict__ 中尝试提取 chat_id。"""
+    try:
+        raw = getattr(data, "__dict__", None) or {}
+        event_raw = raw.get("event")
+        if event_raw is None:
+            return None
+        if hasattr(event_raw, "__dict__"):
+            event_raw = event_raw.__dict__
+        msg_raw = event_raw.get("message")
+        if msg_raw is None:
+            return None
+        if hasattr(msg_raw, "__dict__"):
+            msg_raw = msg_raw.__dict__
+        return msg_raw.get("chat_id") or None
+    except Exception:
+        return None
+
+
+def _reply_to_message(message_id, content, msg_type="text"):
+    """通过 message_id 回复消息到原会话（群聊/私聊均可）。
+
+    不需要 chat_id，用于 chat_id 丢失时的兜底回复/调试。
+    """
+    if not message_id:
+        return False
+    token = _get_tenant_access_token()
+    if not token:
+        return False
+    try:
+        import urllib.request
+        import urllib.parse
+        import json as _json
+        encoded_id = urllib.parse.quote(message_id, safe="")
+        url = f"https://open.feishu.cn/open-apis/im/v1/messages/{encoded_id}/reply"
+        body = _json.dumps({
+            "content": _json.dumps({"text": content}),
+            "msg_type": msg_type,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "Authorization": "Bearer " + token,
+                "Content-Type": "application/json; charset=utf-8",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = _json.loads(r.read()) or {}
+        return data.get("code") == 0
+    except Exception as e:
+        logger.warning("回复消息失败: %s", e)
+    return False
 
 
 def _is_at_bot(mentions):
@@ -1062,8 +1235,22 @@ def handle_message(data):
         logger.debug("忽略重复飞书消息: %s", message_id)
         return
     open_id = sender.sender_id.open_id
-    chat_id = message.chat_id
+    # 飞书事件原始数据：message.chat_id 在群聊中可能为空（SDK 解析问题）。
+    # 依次尝试：1) SDK 标准字段；2) sender.chat_id；3) 事件对象原始 __dict__；
+    # 4) 通过 message_id 调飞书 API 反查消息详情。
+    chat_id = getattr(message, "chat_id", None) or ""
+    if not chat_id:
+        chat_id = getattr(getattr(event, "sender", None), "chat_id", None) or ""
+    if not chat_id:
+        raw_cid = _extract_raw_chat_id(data)
+        chat_id = raw_cid or ""
+    if not chat_id and message_id:
+        chat_id = _get_chat_id_by_message_id(message_id)
     chat_type = getattr(message, "chat_type", "") or ""
+    logger.info(
+        "[DEBUG] chat_id=%s chat_type=%s open_id=%s message_id=%s",
+        chat_id, chat_type, open_id, message_id,
+    )
     if not PUBLIC_ACCESS and open_id not in ALLOWED_USERS:
         logger.warning("未授权用户: %s", open_id)
         return
