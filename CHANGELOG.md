@@ -4,6 +4,21 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [2.0.3] - 2026-07-19
+
+### ✨ 新增模块
+
+- `feishu_api/bitable.py` — 多维表格操作模块
+- `feishu_api/wiki.py` — 知识库操作模块
+
+### 🔧 更新
+
+- `feishu_api/__init__.py` — 注册新命令、增强分发逻辑
+- `feishu_api/docx.py` — 云文档功能增强
+- `feishu_api/formatters.py` — 格式化输出优化
+- `feishu_api/im.py` — IM 消息模块更新
+- `feishu_api/permissions.py` — 权限模块更新
+
 ## [2.0.2] - 2026-07-15
 
 ### ✨ 卡片消息全面改造
