@@ -144,8 +144,9 @@ def build_extra_sys_prompt(chat_id, receive_id_type):
             f"规则（必须遵守）：\n"
             f"1. 当用户说“本群”、“当前群”、“这个群”时，严格指上述群ID({chat_id})。\n"
             f"2. 执行任何涉及当前群的操作（如总结群聊、查询群成员、发送消息到当前群）时，必须使用上述群ID，禁止调用 list_chats 等工具去“猜测”当前群。\n"
-            f"3. 在 code_run 中可通过 os.environ.get('{_ENV_CHAT_ID}') 获取当前群ID。\n"
+            f"3. 在 code_run 中通过 os.environ['{_ENV_CHAT_ID}'] 获取当前群ID（必须用 [] 索引而非 .get()，确保环境变量存在再继续）。\n"
             f"4. 向用户回复时，用“本群”或“当前群聊”指代，禁止展示原始ID。\n"
+            f"5. ⚠️ 调用 collect_ai_news / push_to_feishu 时，chat_id 必须显式传入 os.environ['{_ENV_CHAT_ID}']，禁止省略或传 None（省略/None 会静默失败跳过推送）。示例：collect_ai_news(time_window=\"day\", auto_push=True, chat_id=os.environ['{_ENV_CHAT_ID}'])\n"
             f"[/当前飞书会话上下文]\n"
         )
     return (
