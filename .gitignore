@@ -36,6 +36,9 @@ Thumbs.db
 # 备份文件
 *.bak
 
+# 运行时数据缓存（含群信息，不应提交）
+data/chat_name_cache.json
+
 # 临时文件
 tmp/
 temp/
