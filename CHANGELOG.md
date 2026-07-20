@@ -4,6 +4,18 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [2.0.6] - 2026-07-20
+
+### ✨ 新增
+
+- `frontends/chatapp_common.py` — 新增 `/llm` 命令，支持列出可用大模型列表，以及通过 `/llm <数字>` 切换当前模型
+- `lark_bot/` 部署隔离 — 新增 `_project_dir` 排除机制，确保运行时只加载部署目录代码，避免与上游项目目录混淆
+
+### 🔧 更新
+
+- `fsbot_ctl.py` — 新增 `_project_dir` 排除逻辑，支持多目录隔离部署
+- `README.md` — 更新 v2.0.6 版本号，新增 `/llm` 功能说明
+
 ## [2.0.5] - 2026-07-20
 
 ### ✨ 新增

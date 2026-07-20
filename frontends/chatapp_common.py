@@ -50,6 +50,7 @@ class AgentChatMixin:
             "/stop": self._cmd_stop,
             "/status": self._cmd_status,
             "/clear": self._cmd_clear,
+            "/llm": self._cmd_llm,
         }
 
     async def handle_command(self, chat_key, user_input, *, receive_id, receive_id_type):
@@ -66,6 +67,8 @@ class AgentChatMixin:
                 chat_key,
                 f"未知命令 {cmd}\n\n支持的命令:\n"
                 f"  /help - 帮助信息\n"
+                f"  /llm - 列出可用大模型\n"
+                f"  /llm <数字> - 切换大模型\n"
                 f"  /stop - 停止当前任务\n"
                 f"  /status - 查看任务状态\n"
                 f"  /clear - 清除对话历史\n"
@@ -82,7 +85,12 @@ class AgentChatMixin:
             f"- 文字对话: 直接发送消息\n"
             f"- 图片分析: 发送图片\n"
             f"- 文件处理: 发送文件\n"
-            f"- 命令: /stop, /clear, /status, /help\n\n"
+            f"- `/llm` — 列出可用大模型\n"
+            f"- `/llm <数字>` — 切换大模型\n"
+            f"- `/stop` — 停止任务\n"
+            f"- `/clear` — 清除对话\n"
+            f"- `/status` — 查看状态\n"
+            f"- `/help` — 本说明\n\n"
             f"群聊中请 @我 后发言",
             receive_id=receive_id,
             receive_id_type=receive_id_type,
@@ -110,3 +118,41 @@ class AgentChatMixin:
             await self.send_text(chat_key, "🗑 对话历史已清除。", receive_id=receive_id, receive_id_type=receive_id_type)
         except Exception as e:
             await self.send_text(chat_key, f"清除失败: {e}", receive_id=receive_id, receive_id_type=receive_id_type)
+
+    async def _cmd_llm(self, chat_key, user_input, *, receive_id, receive_id_type):
+        """查看/切换 LLM 模型。\n/llm → 列出可用模型; /llm <数字> → 切换模型"""
+        parts = (user_input or "").strip().split(None, 1)
+        if len(parts) < 2:
+            # 列出可用 LLM
+            try:
+                llms = self.agent.list_llms()
+            except Exception as e:
+                await self.send_text(chat_key, f"❌ 获取 LLM 列表失败: {e}", receive_id=receive_id, receive_id_type=receive_id_type)
+                return
+            if not llms:
+                await self.send_text(chat_key, "⚠️ 没有可用的 LLM。", receive_id=receive_id, receive_id_type=receive_id_type)
+                return
+            lines = ["**🤖 可用模型列表**\n"]
+            for idx, name, is_current in llms:
+                marker = "👉 " if is_current else "   "
+                lines.append(f"{marker}`/llm {idx}` — {name}{'  **(当前)**' if is_current else ''}")
+            lines.append("\n💡 发送 `/llm <数字>` 切换模型")
+            await self.send_text(chat_key, "\n".join(lines), receive_id=receive_id, receive_id_type=receive_id_type)
+        else:
+            # 切换 LLM
+            spec = parts[1].strip()
+            if spec.isdigit():
+                idx = int(spec)
+                try:
+                    self.agent.next_llm(idx)
+                    name = self.agent.get_llm_name()
+                    model = self.agent.get_llm_name(model=True)
+                    await self.send_text(
+                        chat_key,
+                        f"✅ 已切换到 **{name}**\n模型: `{model}`",
+                        receive_id=receive_id, receive_id_type=receive_id_type,
+                    )
+                except Exception as e:
+                    await self.send_text(chat_key, f"❌ 切换失败: {e}", receive_id=receive_id, receive_id_type=receive_id_type)
+            else:
+                await self.send_text(chat_key, f"❌ 无效序号: `{spec}`\n使用 `/llm` 查看可用列表。", receive_id=receive_id, receive_id_type=receive_id_type)

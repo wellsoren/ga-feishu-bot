@@ -37,8 +37,14 @@ def _ensure_paths():
     if _MODULES_INITIALIZED:
         return
     for p in [LARK_BOT_DIR, GA_ROOT, SP_DIR]:
-        if p not in sys.path:
-            sys.path.insert(0, p)
+        # 无论是否已在 sys.path，都确保在最前面
+        if p in sys.path:
+            sys.path.remove(p)
+        sys.path.insert(0, p)
+    # 剔除 project 目录，防止开源仓库代码干扰机器人运行
+    _project_dir = os.path.join(GA_ROOT, "project", "ga-feishu-bot")
+    while _project_dir in sys.path:
+        sys.path.remove(_project_dir)
     # 清理 start_fsbot.py exec() 残留的 SitePackagesFinder
     # 其闭包丢失 importlib，会导致 lark_oapi 导入失败
     sys.meta_path[:] = [

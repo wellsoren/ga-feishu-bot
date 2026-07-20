@@ -97,7 +97,7 @@ ga-feishu-bot/
 
 ```bash
 # 1. 解压部署包
-tar -xzf ga_feishu_bot_v2.0.5.tar.gz
+tar -xzf ga_feishu_bot_v2.0.6.tar.gz
 cd ga_feishu_deploy
 
 # 2. 运行安装（会自动检测 GA 环境，在线下载依赖）
@@ -176,6 +176,7 @@ python start_fsbot.py
 - 集成 LLM 进行智能对话
 - 支持多轮上下文记忆
 - 支持 `/clear` 清除对话历史
+- 支持 `/llm` 列出可用大模型，`/llm <数字>` 切换当前模型
 
 ### 🔌 飞书 API
 - `lark_native.py` 提供完整 REST API 封装
